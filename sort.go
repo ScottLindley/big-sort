@@ -34,10 +34,6 @@ func main() {
 		mergedPath, ok := <-merged
 		if !ok {
 			end := time.Now().Unix()
-			err := os.Rename(mergedPath, "sorted.txt")
-			if err != nil {
-				panic(err)
-			}
 			fmt.Printf("finished in %d seconds", end-start)
 			break
 		}
@@ -46,6 +42,10 @@ func main() {
 			c <- mergedPath
 		} else {
 			close(c)
+			err := os.Rename(mergedPath, "sorted.txt")
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 }
@@ -63,27 +63,27 @@ func getFileSize(path string) int64 {
 }
 
 func mergeFiles(in <-chan string) <-chan string {
+	filePairs := batch(in, 2)
+
 	workerFn := func() <-chan string {
 		out := make(chan string)
 
 		go func() {
 			defer close(out)
-			pathA := ""
-			pathB := ""
 
 			for {
-				path, ok := <-in
-				if !ok {
+				paths, ok := <-filePairs
+				if !ok || len(paths) < 1 {
+					return
+				}
+
+				pathA := paths[0]
+				if len(paths) < 2 {
 					out <- pathA
 					return
 				}
 
-				if pathA == "" {
-					pathA = path
-					continue
-				}
-
-				pathB = path
+				pathB := paths[1]
 
 				pathC := generateSortedPathName(pathA, pathB)
 
@@ -132,8 +132,6 @@ func mergeFiles(in <-chan string) <-chan string {
 				// clean up the two files
 				go deleteFile(pathA)
 				go deleteFile(pathB)
-
-				pathA, pathB = "", ""
 
 				out <- pathC
 			}
@@ -350,6 +348,28 @@ func intsToBytes(nums []int) <-chan []byte {
 		}
 	}()
 
+	return out
+}
+
+func batch(in <-chan string, size int) <-chan []string {
+	out := make(chan []string)
+	go func() {
+		defer close(out)
+		for {
+			batch := make([]string, 0)
+
+			for i := 0; i < size; i++ {
+				s, ok := <-in
+				if !ok {
+					out <- batch
+					return
+				}
+				batch = append(batch, s)
+			}
+
+			out <- batch
+		}
+	}()
 	return out
 }
 
