@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/md5"
 	"fmt"
 	"io"
 	"os"
@@ -13,87 +14,131 @@ import (
 
 func main() {
 	start := time.Now().Unix()
-	fileName := <-mergeFiles(sortFiles(split("nums.txt", 1000000)))
-	end := time.Now().Unix()
-	fmt.Printf("finished in %d seconds: %s", end-start, fileName)
-}
+	fileSize := getFileSize("nums.txt")
+	sorted := sortFiles(split("nums.txt", 1000000))
+	c := make(chan string)
 
-func mergeFiles(in <-chan string) <-chan string {
-	out := make(chan string)
+	merged := mergeFiles(c)
 
 	go func() {
-		defer close(out)
-		i := 0
-		pathA := ""
-		pathB := ""
-
 		for {
-			path, ok := <-in
+			filePath, ok := <-sorted
 			if !ok {
-				out <- pathA
 				return
 			}
-
-			if pathA == "" {
-				pathA = path
-				continue
-			}
-
-			pathB = path
-			pathC := "sorted_" + strconv.Itoa(i) + ".txt"
-			i++
-
-			w := make(chan int)
-			writeLine(pathC, intsToLines(w))
-
-			readA := linesToInts(readLine(pathA))
-			readB := linesToInts(readLine(pathB))
-
-			// indicates that a/b is closed -- no more values
-			doneA := false
-			doneB := false
-
-			nA, ok := <-readA
-			if !ok {
-				doneA = true
-			}
-			nB, ok := <-readB
-			if !ok {
-				doneB = true
-			}
-
-			// so long as we have more values
-			for !doneA || !doneB {
-				if !doneA && (doneB || nA < nB) {
-					n, ok := <-readA
-					if !ok {
-						doneA = true
-						w <- nB
-					} else {
-						w <- nA
-						nA = n
-					}
-				} else {
-					n, ok := <-readB
-					if !ok {
-						doneB = true
-						w <- nA
-					} else {
-						w <- nB
-						nB = n
-					}
-				}
-			}
-
-			// clean up the two files
-			go deleteFile(pathA)
-			go deleteFile(pathB)
-
-			pathA, pathB = pathC, ""
+			c <- filePath
 		}
 	}()
 
-	return out
+	for {
+		mergedPath, ok := <-merged
+		if !ok {
+			end := time.Now().Unix()
+			fmt.Printf("finished in %d seconds: %s", end-start, mergedPath)
+			break
+		}
+
+		if getFileSize(mergedPath) < fileSize {
+			c <- mergedPath
+		} else {
+			close(c)
+		}
+	}
+}
+
+type mergeSection struct {
+	filePath string
+}
+
+func getFileSize(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		panic(err)
+	}
+	return fi.Size()
+}
+
+func mergeFiles(in <-chan string) <-chan string {
+	workerFn := func() <-chan string {
+		out := make(chan string)
+
+		go func() {
+			defer close(out)
+			pathA := ""
+			pathB := ""
+
+			for {
+				path, ok := <-in
+				if !ok {
+					out <- pathA
+					return
+				}
+
+				if pathA == "" {
+					pathA = path
+					continue
+				}
+
+				pathB = path
+
+				pathC := generateSortedPathName(pathA, pathB)
+
+				w := make(chan int)
+				writeLine(pathC, intsToLines(w))
+
+				readA := linesToInts(readLine(pathA))
+				readB := linesToInts(readLine(pathB))
+
+				// indicates that a/b is closed -- no more values
+				doneA := false
+				doneB := false
+
+				nA, ok := <-readA
+				if !ok {
+					doneA = true
+				}
+				nB, ok := <-readB
+				if !ok {
+					doneB = true
+				}
+
+				// so long as we have more values
+				for !doneA || !doneB {
+					if !doneA && (doneB || nA < nB) {
+						n, ok := <-readA
+						if !ok {
+							doneA = true
+							w <- nB
+						} else {
+							w <- nA
+							nA = n
+						}
+					} else {
+						n, ok := <-readB
+						if !ok {
+							doneB = true
+							w <- nA
+						} else {
+							w <- nB
+							nB = n
+						}
+					}
+				}
+
+				// clean up the two files
+				go deleteFile(pathA)
+				go deleteFile(pathB)
+
+				pathA, pathB = "", ""
+
+				out <- pathC
+			}
+		}()
+
+		return out
+	}
+
+	return fanIn(fanOut(workerFn, 10))
 }
 
 func sortFiles(in <-chan string) <-chan string {
@@ -127,7 +172,6 @@ func sortFiles(in <-chan string) <-chan string {
 		return out
 	}
 
-	// run sorters in parallel
 	return fanIn(fanOut(workerFn, 8))
 }
 
@@ -340,4 +384,9 @@ func fanIn(channels []<-chan string) <-chan string {
 	}()
 
 	return multiplexedStreams
+}
+
+func generateSortedPathName(pathA, pathB string) string {
+	hash := fmt.Sprintf("%x", md5.Sum([]byte(pathA+"-"+pathB)))
+	return "sorted_" + hash + ".txt"
 }

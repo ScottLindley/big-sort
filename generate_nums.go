@@ -15,7 +15,7 @@ func main() {
 		var err error
 		n, err = strconv.Atoi(args[1])
 		if err != nil {
-			panic(err)
+
 			log.Fatal(`number argument malformed`)
 		}
 	}
