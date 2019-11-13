@@ -1,0 +1,5 @@
+.*
+!.gitignore
+nums.txt
+sorted.txt
+temp
