@@ -2,7 +2,6 @@ package shared
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -98,18 +97,6 @@ func DeleteDirectory(path string) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func GetFileSize(path string) int64 {
-	fi, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		fmt.Printf("Get file size %s does not exist\n", path)
-		return 0
-	}
-	if err != nil {
-		panic(err)
-	}
-	return fi.Size()
 }
 
 func LinesToInts(in <-chan []byte) <-chan int {

@@ -13,49 +13,13 @@ import (
 
 func main() {
 	start := time.Now().Unix()
-	fileSize := shared.GetFileSize("nums.txt")
 
 	shared.DeleteDirectory("temp")
 	shared.CreateDirectory("temp")
 
-	sorted := sortFiles(split("nums.txt", 1000000))
-	c := make(chan string)
+	mergedFile := <-mergeFiles(sortFiles(split("nums.txt", 1000000)))
 
-	merged := mergeFiles(c)
-
-	go func() {
-		n := 0
-		for {
-			filePath, ok := <-sorted
-			if !ok {
-				fmt.Println("sort closed", len(c))
-				if len(c) == 1 {
-					close(c)
-				}
-				return
-			}
-			n++
-			c <- filePath
-		}
-	}()
-
-	var mergedPath string
-	for {
-		var ok bool
-		mergedPath, ok = <-merged
-		if !ok {
-			break
-		}
-
-		if shared.GetFileSize(mergedPath) < fileSize {
-			c <- mergedPath
-		} else {
-			break
-		}
-	}
-
-	close(c)
-	err := os.Rename(mergedPath, "sorted.txt")
+	err := os.Rename(mergedFile, "sorted.txt")
 	shared.DeleteDirectory("temp")
 	if err != nil {
 		panic(err)
@@ -146,7 +110,21 @@ func mergeFiles(in <-chan string) <-chan string {
 		return out
 	}
 
-	return shared.FanIn(shared.FanOut(workerFn, 20))
+	merged := shared.FanIn(shared.FanOut(workerFn, 20))
+
+	mergedFiles := make([]string, 0)
+	for {
+		f, ok := <-merged
+		if !ok {
+			break
+		}
+		mergedFiles = append(mergedFiles, f)
+	}
+
+	if len(mergedFiles) > 1 {
+		return mergeFiles(shared.StringStream(mergedFiles))
+	}
+	return shared.StringStream(mergedFiles)
 }
 
 func sortFiles(in <-chan string) <-chan string {
