@@ -34,7 +34,11 @@ func main() {
 		mergedPath, ok := <-merged
 		if !ok {
 			end := time.Now().Unix()
-			fmt.Printf("finished in %d seconds: %s", end-start, mergedPath)
+			err := os.Rename(mergedPath, "sorted.txt")
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("finished in %d seconds", end-start)
 			break
 		}
 
@@ -138,7 +142,7 @@ func mergeFiles(in <-chan string) <-chan string {
 		return out
 	}
 
-	return fanIn(fanOut(workerFn, 10))
+	return fanIn(fanOut(workerFn, 20))
 }
 
 func sortFiles(in <-chan string) <-chan string {
@@ -233,7 +237,6 @@ func writeLine(path string, in <-chan []byte) <-chan bool {
 		defer f.Close()
 
 		batch := make([]byte, 0)
-
 		for {
 			bytes, ok := <-in
 			if !ok {
@@ -243,7 +246,7 @@ func writeLine(path string, in <-chan []byte) <-chan bool {
 			for _, b := range bytes {
 				batch = append(batch, b)
 			}
-			if len(batch) > 1024*1024 {
+			if len(batch) > 1024*512 {
 				_, err := f.Write(batch)
 				if err != nil {
 					panic(err)
