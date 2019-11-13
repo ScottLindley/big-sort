@@ -3,7 +3,6 @@ package shared
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -41,40 +40,6 @@ func WriteLines(path string, in <-chan []byte) <-chan bool {
 	return out
 }
 
-func WriteLines2(path string, in <-chan []byte) <-chan bool {
-	out := make(chan bool)
-
-	go func() {
-		defer close(out)
-		f, err := os.Create(path)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-
-		batch := make([]byte, 0)
-		for {
-			bytes, ok := <-in
-			if !ok {
-				return
-			}
-			bytes = []byte(string(bytes) + "\n")
-			for _, b := range bytes {
-				batch = append(batch, b)
-			}
-			if len(batch) > 1024*512 {
-				_, err := f.Write(batch)
-				if err != nil {
-					panic(err)
-				}
-				batch = make([]byte, 0)
-			}
-		}
-	}()
-
-	return out
-}
-
 func ReadLines(path string) <-chan []byte {
 	out := make(chan []byte)
 
@@ -100,39 +65,6 @@ func ReadLines(path string) <-chan []byte {
 		err = s.Err()
 		if err != nil {
 			panic(err)
-		}
-	}()
-
-	return out
-}
-
-func ReadLines2(path string) <-chan []byte {
-	out := make(chan []byte)
-
-	go func() {
-		defer close(out)
-		f, err := os.Open(path)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		b := make([]byte, 1024*512)
-
-		for {
-			_, err = f.Read(b)
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				panic(err)
-			}
-
-			lines := strings.Split(string(b), "\n")
-			for _, line := range lines {
-				if line != "" {
-					out <- []byte(line)
-				}
-			}
 		}
 	}()
 
@@ -197,6 +129,19 @@ func LinesToInts(in <-chan []byte) <-chan int {
 			}
 
 			out <- n
+		}
+	}()
+
+	return out
+}
+
+func StringStream(strs []string) <-chan string {
+	out := make(chan string)
+
+	go func() {
+		defer close(out)
+		for _, s := range strs {
+			out <- s
 		}
 	}()
 
