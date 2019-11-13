@@ -3,67 +3,69 @@ package main
 import (
 	"crypto/md5"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
+
+	"./shared"
 )
 
 func main() {
 	start := time.Now().Unix()
-	fileSize := getFileSize("nums.txt")
+	fileSize := shared.GetFileSize("nums.txt")
+
+	shared.DeleteDirectory("temp")
+	shared.CreateDirectory("temp")
+
 	sorted := sortFiles(split("nums.txt", 1000000))
 	c := make(chan string)
 
 	merged := mergeFiles(c)
 
 	go func() {
+		n := 0
 		for {
 			filePath, ok := <-sorted
 			if !ok {
+				fmt.Println("sort closed", len(c))
+				if len(c) == 1 {
+					close(c)
+				}
 				return
 			}
+			n++
 			c <- filePath
 		}
 	}()
 
+	var mergedPath string
 	for {
-		mergedPath, ok := <-merged
+		var ok bool
+		mergedPath, ok = <-merged
 		if !ok {
-			end := time.Now().Unix()
-			fmt.Printf("finished in %d seconds", end-start)
 			break
 		}
 
-		if getFileSize(mergedPath) < fileSize {
+		if shared.GetFileSize(mergedPath) < fileSize {
 			c <- mergedPath
 		} else {
-			close(c)
-			err := os.Rename(mergedPath, "sorted.txt")
-			if err != nil {
-				panic(err)
-			}
+			break
 		}
 	}
-}
 
-type mergeSection struct {
-	filePath string
-}
-
-func getFileSize(path string) int64 {
-	fi, err := os.Stat(path)
+	close(c)
+	err := os.Rename(mergedPath, "sorted.txt")
+	shared.DeleteDirectory("temp")
 	if err != nil {
 		panic(err)
 	}
-	return fi.Size()
+	end := time.Now().Unix()
+	fmt.Printf("finished in %d seconds\n", end-start)
 }
 
 func mergeFiles(in <-chan string) <-chan string {
-	filePairs := batch(in, 2)
+	filePairs := shared.Batch(2, in)
 
 	workerFn := func() <-chan string {
 		out := make(chan string)
@@ -73,25 +75,29 @@ func mergeFiles(in <-chan string) <-chan string {
 
 			for {
 				paths, ok := <-filePairs
-				if !ok || len(paths) < 1 {
+				if !ok {
 					return
+				}
+
+				if len(paths) < 2 {
+					if len(paths) > 0 {
+						out <- paths[0]
+					}
+					continue
 				}
 
 				pathA := paths[0]
-				if len(paths) < 2 {
-					out <- pathA
-					return
-				}
-
 				pathB := paths[1]
 
-				pathC := generateSortedPathName(pathA, pathB)
+				fmt.Printf("merging files %s & %s\n", pathA, pathB)
+
+				pathC := generateMergedPathName(pathA, pathB)
 
 				w := make(chan int)
-				writeLine(pathC, intsToLines(w))
+				shared.WriteLines(pathC, shared.IntsToLines(w))
 
-				readA := linesToInts(readLine(pathA))
-				readB := linesToInts(readLine(pathB))
+				readA := shared.LinesToInts(shared.ReadLines(pathA))
+				readB := shared.LinesToInts(shared.ReadLines(pathB))
 
 				// indicates that a/b is closed -- no more values
 				doneA := false
@@ -130,8 +136,8 @@ func mergeFiles(in <-chan string) <-chan string {
 				}
 
 				// clean up the two files
-				go deleteFile(pathA)
-				go deleteFile(pathB)
+				shared.DeleteFile(pathA)
+				shared.DeleteFile(pathB)
 
 				out <- pathC
 			}
@@ -140,7 +146,7 @@ func mergeFiles(in <-chan string) <-chan string {
 		return out
 	}
 
-	return fanIn(fanOut(workerFn, 20))
+	return shared.FanIn(shared.FanOut(workerFn, 20))
 }
 
 func sortFiles(in <-chan string) <-chan string {
@@ -155,7 +161,7 @@ func sortFiles(in <-chan string) <-chan string {
 				}
 
 				nums := make([]int, 0)
-				c := linesToInts(readLine(filePath))
+				c := shared.LinesToInts(shared.ReadLines(filePath))
 				for {
 					n, ok := <-c
 					if !ok {
@@ -166,7 +172,10 @@ func sortFiles(in <-chan string) <-chan string {
 
 				sort.Ints(nums)
 
-				<-writeLine(filePath, intsToBytes(nums))
+				<-shared.WriteLines(
+					filePath,
+					shared.IntsToLines(
+						shared.IntStream(nums)))
 
 				out <- filePath
 			}
@@ -174,7 +183,7 @@ func sortFiles(in <-chan string) <-chan string {
 		return out
 	}
 
-	return fanIn(fanOut(workerFn, 8))
+	return shared.FanIn(shared.FanOut(workerFn, 8))
 }
 
 func split(filePath string, lineCount int) <-chan string {
@@ -183,19 +192,15 @@ func split(filePath string, lineCount int) <-chan string {
 	go func() {
 		defer close(filePaths)
 
-		pieces := strings.Split(filePath, ".")
-		fileName := pieces[0]
-		fileExtension := pieces[1]
-
 		genFilePath := func(n int) string {
-			return fileName + "_" + strconv.Itoa(n) + "." + fileExtension
+			return "temp/nums_" + strconv.Itoa(n) + ".txt"
 		}
 
 		fileCount := 0
-		in := readLine(filePath)
+		in := shared.ReadLines(filePath)
 		out := make(chan []byte)
 		path := genFilePath(fileCount)
-		writeLine(path, out)
+		shared.WriteLines(path, out)
 		lines := 0
 
 		for {
@@ -205,7 +210,7 @@ func split(filePath string, lineCount int) <-chan string {
 				filePaths <- path
 				return
 			}
-			out <- line
+			out <- []byte(string(line) + "\n")
 
 			lines++
 			if lines > lineCount {
@@ -214,7 +219,7 @@ func split(filePath string, lineCount int) <-chan string {
 				filePaths <- path
 				fileCount++
 				path = genFilePath(fileCount)
-				writeLine(path, out)
+				shared.WriteLines(path, out)
 				lines = 0
 			}
 		}
@@ -223,193 +228,7 @@ func split(filePath string, lineCount int) <-chan string {
 	return filePaths
 }
 
-func writeLine(path string, in <-chan []byte) <-chan bool {
-	out := make(chan bool)
-
-	go func() {
-		defer close(out)
-		f, err := os.Create(path)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-
-		batch := make([]byte, 0)
-		for {
-			bytes, ok := <-in
-			if !ok {
-				return
-			}
-			bytes = []byte(string(bytes) + "\n")
-			for _, b := range bytes {
-				batch = append(batch, b)
-			}
-			if len(batch) > 1024*512 {
-				_, err := f.Write(batch)
-				if err != nil {
-					panic(err)
-				}
-				batch = make([]byte, 0)
-			}
-		}
-	}()
-
-	return out
-}
-
-func readLine(path string) <-chan []byte {
-	out := make(chan []byte)
-
-	go func() {
-		defer close(out)
-		f, err := os.Open(path)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		b := make([]byte, 1024*1024)
-
-		for {
-			_, err = f.Read(b)
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				panic(err)
-			}
-
-			lines := strings.Split(string(b), "\n")
-			for _, line := range lines {
-				if line != "" {
-					out <- []byte(line)
-				}
-			}
-		}
-	}()
-
-	return out
-}
-
-func deleteFile(path string) {
-	var err = os.Remove(path)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func linesToInts(in <-chan []byte) <-chan int {
-	out := make(chan int)
-
-	go func() {
-		defer close(out)
-		for {
-			b, ok := <-in
-			if !ok {
-				return
-			}
-
-			n, err := strconv.Atoi(string(b))
-			if err != nil {
-				panic(err)
-			}
-
-			out <- n
-		}
-	}()
-
-	return out
-}
-
-func intsToLines(in <-chan int) <-chan []byte {
-	out := make(chan []byte)
-
-	go func() {
-		defer close(out)
-		for {
-			n, ok := <-in
-			if !ok {
-				return
-			}
-
-			out <- []byte(strconv.Itoa(n))
-		}
-	}()
-
-	return out
-}
-
-func intsToBytes(nums []int) <-chan []byte {
-	out := make(chan []byte)
-
-	go func() {
-		defer close(out)
-		for _, n := range nums {
-			out <- []byte(strconv.Itoa(n))
-		}
-	}()
-
-	return out
-}
-
-func batch(in <-chan string, size int) <-chan []string {
-	out := make(chan []string)
-	go func() {
-		defer close(out)
-		for {
-			batch := make([]string, 0)
-
-			for i := 0; i < size; i++ {
-				s, ok := <-in
-				if !ok {
-					out <- batch
-					return
-				}
-				batch = append(batch, s)
-			}
-
-			out <- batch
-		}
-	}()
-	return out
-}
-
-func fanOut(f func() <-chan string, workers int) []<-chan string {
-	workerChans := make([]<-chan string, workers)
-	for i := 0; i < workers; i++ {
-		workerChans[i] = f()
-	}
-	return workerChans
-}
-
-func fanIn(channels []<-chan string) <-chan string {
-	var wg sync.WaitGroup
-	multiplexedStreams := make(chan string)
-
-	multiplex := func(c <-chan string) {
-		defer wg.Done()
-		for {
-			i, ok := <-c
-			if !ok {
-				return
-			}
-			multiplexedStreams <- i
-		}
-	}
-
-	wg.Add(len(channels))
-	for _, c := range channels {
-		go multiplex(c)
-	}
-
-	go func() {
-		defer close(multiplexedStreams)
-		wg.Wait()
-	}()
-
-	return multiplexedStreams
-}
-
-func generateSortedPathName(pathA, pathB string) string {
+func generateMergedPathName(pathA, pathB string) string {
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(pathA+"-"+pathB)))
-	return "sorted_" + hash + ".txt"
+	return "temp/merged_" + hash + ".txt"
 }
