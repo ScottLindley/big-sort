@@ -62,9 +62,10 @@ func (w *Writer) WriteIntLine(n int) {
 }
 
 type Reader struct {
-	FilePath string
-	File     *os.File
-	Scanner  *bufio.Scanner
+	FilePath  string
+	File      *os.File
+	Scanner   *bufio.Scanner
+	BytesRead int64
 }
 
 func NewReader(filePath string) *Reader {
@@ -95,7 +96,9 @@ func (r *Reader) ReadLine() ([]byte, bool) {
 	}
 
 	if r.Scanner.Scan() {
-		return r.Scanner.Bytes(), true
+		b := r.Scanner.Bytes()
+		r.BytesRead += int64(len(b))
+		return b, true
 	}
 	return []byte{}, false
 }

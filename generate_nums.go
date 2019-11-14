@@ -30,8 +30,8 @@ func main() {
 	genNums(n)
 	end := time.Now().Unix()
 
-	fmt.Println("")
-	fmt.Printf("done! took %d seconds\n", end-start)
+	fmt.Print("  100%   \r")
+	fmt.Printf("\ndone! took %d seconds\n", end-start)
 }
 
 func genNums(total int) {
