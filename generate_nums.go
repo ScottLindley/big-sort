@@ -6,9 +6,12 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"time"
 
 	"./shared"
 )
+
+const option = 1
 
 func main() {
 	args := os.Args
@@ -23,28 +26,27 @@ func main() {
 
 	fmt.Printf("generating %d random numbers\n", n)
 
-	<-shared.WriteLines("nums.txt",
-		shared.IntsToLines(
-			generateNums(n)))
+	start := time.Now().Unix()
+	genNums(n)
+	end := time.Now().Unix()
 
-	fmt.Println("\ndone!")
+	fmt.Println("")
+	fmt.Printf("done! took %d seconds\n", end-start)
 }
 
-func generateNums(total int) <-chan int {
-	out := make(chan int)
+func genNums(total int) {
+	w := shared.NewWriter("nums.txt")
 
-	go func() {
-		defer close(out)
-		count := 0
-		for count < total {
-			out <- rand.Int()
-			count++
-			if count%1000000 == 0 {
-				percent := (float64(count) / float64(total)) * 100
-				fmt.Print("  "+strconv.FormatFloat(percent, 'f', 2, 32), "%\r")
-			}
+	count := 0
+	for count < total {
+		w.WriteIntLine(rand.Int())
+
+		count++
+		if count%1000000 == 0 {
+			percent := (float64(count) / float64(total)) * 100
+			fmt.Print("  "+strconv.FormatFloat(percent, 'f', 2, 32), "%\r")
 		}
-	}()
+	}
 
-	return out
+	w.Close()
 }

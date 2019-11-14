@@ -57,21 +57,19 @@ func mergeFiles(in <-chan string) <-chan string {
 
 				pathC := generateMergedPathName(pathA, pathB)
 
-				w := make(chan int)
-				shared.WriteLines(pathC, shared.IntsToLines(w))
-
-				readA := shared.LinesToInts(shared.ReadLines(pathA))
-				readB := shared.LinesToInts(shared.ReadLines(pathB))
+				w := shared.NewWriter(pathC)
+				rA := shared.NewReader(pathA)
+				rB := shared.NewReader(pathB)
 
 				// indicates that a/b is closed -- no more values
 				doneA := false
 				doneB := false
 
-				nA, ok := <-readA
+				nA, ok := rA.ReadLineInt()
 				if !ok {
 					doneA = true
 				}
-				nB, ok := <-readB
+				nB, ok := rB.ReadLineInt()
 				if !ok {
 					doneB = true
 				}
@@ -79,25 +77,29 @@ func mergeFiles(in <-chan string) <-chan string {
 				// so long as we have more values
 				for !doneA || !doneB {
 					if !doneA && (doneB || nA < nB) {
-						n, ok := <-readA
+						n, ok := rA.ReadLineInt()
 						if !ok {
 							doneA = true
-							w <- nB
+							w.WriteIntLine(nB)
 						} else {
-							w <- nA
+							w.WriteIntLine(nA)
 							nA = n
 						}
 					} else {
-						n, ok := <-readB
+						n, ok := rB.ReadLineInt()
 						if !ok {
 							doneB = true
-							w <- nA
+							w.WriteIntLine(nA)
 						} else {
-							w <- nB
+							w.WriteIntLine(nB)
 							nB = n
 						}
 					}
 				}
+
+				rA.Close()
+				rB.Close()
+				w.Close()
 
 				// clean up the two files
 				shared.DeleteFile(pathA)
@@ -138,22 +140,17 @@ func sortFiles(in <-chan string) <-chan string {
 					return
 				}
 
-				nums := make([]int, 0)
-				c := shared.LinesToInts(shared.ReadLines(filePath))
-				for {
-					n, ok := <-c
-					if !ok {
-						break
-					}
-					nums = append(nums, n)
-				}
-
+				r := shared.NewReader(filePath)
+				nums := r.ReadAllInts()
 				sort.Ints(nums)
 
-				<-shared.WriteLines(
-					filePath,
-					shared.IntsToLines(
-						shared.IntStream(nums)))
+				w := shared.NewWriter(filePath)
+				for _, n := range nums {
+					w.WriteIntLine(n)
+				}
+
+				r.Close()
+				w.Close()
 
 				out <- filePath
 			}
@@ -175,29 +172,30 @@ func split(filePath string, lineCount int) <-chan string {
 		}
 
 		fileCount := 0
-		in := shared.ReadLines(filePath)
-		out := make(chan []byte)
-		path := genFilePath(fileCount)
-		shared.WriteLines(path, out)
 		lines := 0
 
+		r := shared.NewReader(filePath)
+		path := genFilePath(fileCount)
+		w := shared.NewWriter(path)
+
 		for {
-			line, ok := <-in
+			line, ok := r.ReadLineString()
 			if !ok {
-				close(out)
+				r.Close()
+				w.Close()
 				filePaths <- path
 				return
 			}
-			out <- []byte(string(line) + "\n")
+
+			w.Write([]byte(line))
 
 			lines++
 			if lines > lineCount {
-				close(out)
-				out = make(chan []byte)
 				filePaths <- path
 				fileCount++
+				w.Close()
 				path = genFilePath(fileCount)
-				shared.WriteLines(path, out)
+				w = shared.NewWriter(path)
 				lines = 0
 			}
 		}
