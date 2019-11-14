@@ -74,26 +74,34 @@ func mergeFiles(in <-chan string) <-chan string {
 					doneB = true
 				}
 
+				advanceA := func() {
+					w.WriteIntLine(nA)
+					var ok bool
+					nA, ok = rA.ReadLineInt()
+					if !ok {
+						doneA = true
+					}
+				}
+
+				advanceB := func() {
+					w.WriteIntLine(nB)
+					var ok bool
+					nB, ok = rB.ReadLineInt()
+					if !ok {
+						doneB = true
+					}
+				}
+
 				// so long as we have more values
 				for !doneA || !doneB {
-					if !doneA && (doneB || nA < nB) {
-						n, ok := rA.ReadLineInt()
-						if !ok {
-							doneA = true
-							w.WriteIntLine(nB)
-						} else {
-							w.WriteIntLine(nA)
-							nA = n
-						}
+					if doneA {
+						advanceB()
+					} else if doneB {
+						advanceA()
+					} else if nA < nB {
+						advanceA()
 					} else {
-						n, ok := rB.ReadLineInt()
-						if !ok {
-							doneB = true
-							w.WriteIntLine(nA)
-						} else {
-							w.WriteIntLine(nB)
-							nB = n
-						}
+						advanceB()
 					}
 				}
 
@@ -143,6 +151,14 @@ func sortFiles(in <-chan string) <-chan string {
 				r := shared.NewReader(filePath)
 				nums := r.ReadAllInts()
 				sort.Ints(nums)
+
+				i := nums[0]
+				for _, j := range nums {
+					if i > j {
+						panic("WOAH, we did not actually sort!")
+					}
+					i = j
+				}
 
 				w := shared.NewWriter(filePath)
 				for _, n := range nums {
