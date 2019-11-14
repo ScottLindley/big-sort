@@ -152,14 +152,6 @@ func sortFiles(in <-chan string) <-chan string {
 				nums := r.ReadAllInts()
 				sort.Ints(nums)
 
-				i := nums[0]
-				for _, j := range nums {
-					if i > j {
-						panic("WOAH, we did not actually sort!")
-					}
-					i = j
-				}
-
 				w := shared.NewWriter(filePath)
 				for _, n := range nums {
 					w.WriteIntLine(n)
