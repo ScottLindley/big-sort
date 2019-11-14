@@ -147,6 +147,21 @@ func (r *Reader) ReadAllInts() []int {
 	return nums
 }
 
+func GetFileSize(fileName string) int64 {
+	f, err := os.Open(fileName)
+	if err != nil {
+		panic(err)
+	}
+	fStat, err := f.Stat()
+	if err != nil {
+		panic(err)
+	}
+
+	size := fStat.Size()
+	f.Close()
+	return size
+}
+
 func DeleteFile(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return

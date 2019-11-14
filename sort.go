@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -11,13 +12,18 @@ import (
 	"./shared"
 )
 
+var numsFileSize int64
+
 func main() {
 	start := time.Now().Unix()
 
 	shared.DeleteDirectory("temp")
 	shared.CreateDirectory("temp")
 
-	mergedFile := <-mergeFiles(sortFiles(split("nums.txt", 1000000)))
+	numsFileName := "nums.txt"
+	numsFileSize = shared.GetFileSize(numsFileName)
+
+	mergedFile := <-mergeFiles(sortFiles(split(numsFileName, 1000000)))
 
 	err := os.Rename(mergedFile, "sorted.txt")
 	shared.DeleteDirectory("temp")
@@ -25,7 +31,8 @@ func main() {
 		panic(err)
 	}
 	end := time.Now().Unix()
-	fmt.Printf("finished in %d seconds\n", end-start)
+	fmt.Print("  100%    \r")
+	fmt.Printf("\nfinished in %d seconds\n", end-start)
 }
 
 func mergeFiles(in <-chan string) <-chan string {
@@ -52,8 +59,6 @@ func mergeFiles(in <-chan string) <-chan string {
 
 				pathA := paths[0]
 				pathB := paths[1]
-
-				fmt.Printf("merging files %s & %s\n", pathA, pathB)
 
 				pathC := generateMergedPathName(pathA, pathB)
 
@@ -112,6 +117,9 @@ func mergeFiles(in <-chan string) <-chan string {
 				// clean up the two files
 				shared.DeleteFile(pathA)
 				shared.DeleteFile(pathB)
+
+				mergedSize := shared.GetFileSize(pathC)
+				printProgress(mergedSize)
 
 				out <- pathC
 			}
@@ -215,4 +223,15 @@ func split(filePath string, lineCount int) <-chan string {
 func generateMergedPathName(pathA, pathB string) string {
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(pathA+"-"+pathB)))
 	return "temp/merged_" + hash + ".txt"
+}
+
+var mergedBytes int64
+
+func printProgress(size int64) {
+	mergedBytes += size
+	fNums := float64(numsFileSize)
+	fMerged := float64(mergedBytes)
+	p := (fMerged / (math.Log2(fNums) * fNums)) / (math.Log(fNums)) * 10000
+	percent := math.Min(100, p)
+	fmt.Print("  "+strconv.FormatFloat(percent, 'f', 2, 32), "%\r")
 }

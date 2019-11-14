@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 
 	"./shared"
@@ -11,7 +10,7 @@ import (
 
 func main() {
 	fileName := "sorted.txt"
-	fileSize := getFileSize(fileName)
+	fileSize := shared.GetFileSize(fileName)
 
 	r := shared.NewReader(fileName)
 	i, _ := r.ReadLineInt()
@@ -31,19 +30,6 @@ func main() {
 
 	fmt.Print("  100%  \r")
 	fmt.Println("\nDone - list is properly sorted!")
-}
-
-func getFileSize(fileName string) int64 {
-	f, err := os.Open(fileName)
-	if err != nil {
-		panic(err)
-	}
-	fStat, err := f.Stat()
-	if err != nil {
-		panic(err)
-	}
-
-	return fStat.Size()
 }
 
 func printProgress(read int64, total int64) {
