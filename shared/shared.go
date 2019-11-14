@@ -2,72 +2,145 @@ package shared
 
 import (
 	"bufio"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 )
 
-func WriteLines(path string, in <-chan []byte) <-chan bool {
-	out := make(chan bool)
+type Writer struct {
+	FilePath     string
+	File         *os.File
+	Buffer       *bufio.Writer
+	BytesWritten int64
+}
 
-	go func() {
-		defer close(out)
-		f, err := os.Create(path)
+func NewWriter(filePath string) *Writer {
+	w := Writer{FilePath: filePath}
+	w.Open()
+	return &w
+}
+
+func (w *Writer) Open() {
+	f, err := os.Create(w.FilePath)
+	if err != nil {
+		panic(err)
+	}
+	w.File = f
+	w.Buffer = bufio.NewWriterSize(f, 1024*1024)
+}
+
+func (w *Writer) Close() {
+	if w.File != nil {
+		w.File.Close()
+		w.File = nil
+		w.Buffer = nil
+	}
+}
+
+func (w *Writer) Write(b []byte) {
+	if w.Buffer != nil {
+		n, err := w.Buffer.Write(b)
 		if err != nil {
 			panic(err)
 		}
-		defer f.Close()
+		w.BytesWritten += int64(n)
+	}
+}
 
-		r := bufio.NewWriterSize(f, 1024*1024)
+func (w *Writer) WriteIntLine(n int) {
+	if w.Buffer != nil {
+		line := strconv.Itoa(n) + "\n"
+		n, err := w.Buffer.WriteString(line)
+		if err != nil {
+			panic(err)
+		}
+		w.BytesWritten += int64(n)
+	}
+}
 
-		defer r.Flush()
+type Reader struct {
+	FilePath string
+	File     *os.File
+	Scanner  *bufio.Scanner
+}
 
-		for {
-			bytes, ok := <-in
-			if !ok {
-				return
-			}
-			bytes = []byte(string(bytes))
-			_, err := r.Write(bytes)
+func NewReader(filePath string) *Reader {
+	r := Reader{FilePath: filePath}
+	r.Open()
+	return &r
+}
+
+func (r *Reader) Open() {
+	f, err := os.Open(r.FilePath)
+	if err != nil {
+		panic(err)
+	}
+	r.File = f
+}
+
+func (r *Reader) Close() {
+	if r.File != nil {
+		r.File.Close()
+		r.File = nil
+		r.Scanner = nil
+	}
+}
+
+func (r *Reader) ReadLine() ([]byte, bool) {
+	if r.Scanner == nil {
+		r.Scanner = bufio.NewScanner(r.File)
+	}
+
+	if r.Scanner.Scan() {
+		return r.Scanner.Bytes(), true
+	}
+	return []byte{}, false
+}
+
+func (r *Reader) ReadLineString() (string, bool) {
+	b, ok := r.ReadLine()
+	if !ok {
+		return "", false
+	}
+	return string(b) + "\n", true
+}
+
+func (r *Reader) ReadLineInt() (int, bool) {
+	b, ok := r.ReadLine()
+	if !ok {
+		return -1, false
+	}
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		panic(err)
+	}
+	return n, true
+}
+
+func (r *Reader) ReadAll() []byte {
+	b, err := ioutil.ReadAll(r.File)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (r *Reader) ReadAllInts() []int {
+	s := string(r.ReadAll())
+	lines := strings.Split(s, "\n")
+	nums := make([]int, 0)
+	for _, line := range lines {
+		if line != "" {
+			n, err := strconv.Atoi(line)
 			if err != nil {
 				panic(err)
 			}
+			nums = append(nums, n)
 		}
-	}()
-
-	return out
-}
-
-func ReadLines(path string) <-chan []byte {
-	out := make(chan []byte)
-
-	go func() {
-		defer close(out)
-		f, err := os.Open(path)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-
-		s := bufio.NewScanner(f)
-
-		for s.Scan() {
-			lines := strings.Split(s.Text(), "\n")
-			for _, line := range lines {
-				if line != "" {
-					out <- []byte(line)
-				}
-			}
-		}
-
-		err = s.Err()
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	return out
+	}
+	return nums
 }
 
 func DeleteFile(path string) {
