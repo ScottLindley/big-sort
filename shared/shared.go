@@ -33,6 +33,7 @@ func (w *Writer) Open() {
 
 func (w *Writer) Close() {
 	if w.File != nil {
+		w.Buffer.Flush()
 		w.File.Close()
 		w.File = nil
 		w.Buffer = nil
